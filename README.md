@@ -1,0 +1,1 @@
+# Ruby-Workflow-Engine\n\n## Overview\nEnterprise-grade workflow engine implementation in Ruby.\n\n## Quick Start (1-Click Build)\n\n```bash\ngit clone https://github.com/skylerblue333/Ruby-Workflow-Engine.git\ncd Ruby-Workflow-Engine\n# Build instructions depend on the language\n```\n
