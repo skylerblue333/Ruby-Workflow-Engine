@@ -1,34 +1,23 @@
-from fastapi import FastAPI
 import asyncio
 import time
+from fastapi import FastAPI, BackgroundTasks
+from pydantic import BaseModel
 
-app = FastAPI(title="Ruby-Workflow-Engine API", version="2.0.0")
+app = FastAPI(title="Ruby-Workflow-Engine")
 
-class Processor:
-    def __init__(self):
-        self.ready = False
-        self.items_processed = 0
-        
-    async def initialize(self):
-        await asyncio.sleep(0.1)
-        self.ready = True
-        
-    def process(self, data: dict) -> dict:
-        if not self.ready:
-            raise RuntimeError("Not initialized")
-        self.items_processed += 1
-        return {"status": "success", "processed": True, "domain": "engine", "data": data}
+class TaskPayload(BaseModel):
+    data: dict
 
-processor = Processor()
+async def process_data_background(payload: dict):
+    # Simulate heavy processing
+    await asyncio.sleep(1)
+    print(f"Processed: {payload}")
 
-@app.on_event("startup")
-async def startup():
-    await processor.initialize()
+@app.post("/api/v1/process")
+async def process_endpoint(payload: TaskPayload, background_tasks: BackgroundTasks):
+    background_tasks.add_task(process_data_background, payload.data)
+    return {"status": "accepted", "processing_time_ms": int(time.time() * 1000)}
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "ready": processor.ready, "processed": processor.items_processed}
-
-@app.post("/api/v1/process")
-def process_data(payload: dict):
-    return processor.process(payload)
+    return {"status": "healthy", "version": "3.0.0"}
