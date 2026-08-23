@@ -1,44 +1,95 @@
-<!-- PORTFOLIO PROJECT PROFILE: maintained by the repository owner -->
+# Sky Workflow
 
-## Project profile and code-audit snapshot
+**SKYCOIN4444 standalone product #9** — a deterministic persisted workflow coordinator implemented in Python/FastAPI with SQLite/WAL.
 
-**What this is:** **Ruby-Workflow-Engine** is a public repository described as: “Enterprise-grade workflow engine implementation in Ruby. #SkyCoin4444 #AI #Blockchain #DevOps #Innovation” Its dominant language signals are **Python (4 files)**.
+The repository name is historical. The shipped implementation is Python, not Ruby, and the documentation follows the code rather than the old label.
 
-**Why it has value:** Its value is best understood through the implementation evidence currently present in the repository: **18 tracked files** were observed in the shallow audit, with the source structure and existing documentation providing the project’s specific context. This README does not treat a prototype, experiment, or archive as a production system without supporting evidence.
+## Implemented capability
 
-**Implementation evidence:** 2 test-related file(s) detected; 2 dependency or package manifest(s) detected; 2 build/CI/infrastructure signal(s) detected; and 3 documentation or governance file(s) detected. Test filenames observed include `tests/__init__.py`, `tests/test_main.py`. Dependency or package files include `package.json`, `requirements.txt`. Build, CI, or infrastructure signals include `Dockerfile`, `.github/workflows/ci.yml`.
+- persisted workflow instances with immutable per-instance step definitions;
+- ordered sequential steps with per-step timeout, retry delay and max-attempt policy;
+- idempotent workflow starts;
+- idempotent step-transition operations;
+- deterministic current-step and attempt tracking;
+- success transitions to the next step and terminal success after the final step;
+- failure transitions through retry backoff and terminal failure when budget is exhausted;
+- timeout reconciliation that consumes the same retry budget;
+- workflow cancellation;
+- append-only transition history with operation keys;
+- bounded JSON definitions, inputs, results and history payloads;
+- optional constant-time bearer protection for workflow APIs;
+- `/healthz`, `/readyz`, and workflow-state `/metrics` endpoints;
+- non-root container with persistent `/data` volume;
+- tests covering start idempotency, successful progression, transition replay, retry/failure, timeout and cancellation;
+- CI compile, Ruff, pytest, dependency audit, Docker build and non-root-image gates.
 
-**Current status:** The repository is tracked on the `main` branch. The existing source tree, configuration, tests, workflows, and documentation remain authoritative for supported behavior and maturity. A code audit is not a production-readiness certification, and the presence of a test or workflow file does not establish that all checks pass.
+## Run locally
 
-**Relationship to the wider portfolio:** This repository is one focused component of the broader Skyler Blue Spillers portfolio across AI, software engineering, cloud and DevOps, cybersecurity, blockchain, finance, education, social systems, and creative work. It may provide a service boundary, implementation pattern, experiment, archive, or reusable idea for related repositories. Treat repositories as technical dependencies only where documented interfaces and verified project requirements support that relationship.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+export WORKFLOW_DB_PATH=./data/workflows.db
+uvicorn src.main:app --port 8080
+```
 
-**Quality and security note:** No obvious secret-like pattern was detected by the limited static scan; this is not a substitute for a security audit. No TODO/FIXME marker was detected in the scanned text files.
+Start a workflow:
 
----
+```bash
+curl -X POST http://localhost:8080/api/v1/workflows \
+  -H 'content-type: application/json' \
+  -d '{
+    "workflowType":"order.fulfillment",
+    "idempotencyKey":"order-42",
+    "input":{"orderId":"42"},
+    "steps":[
+      {"stepId":"reserve","maxAttempts":3,"retryDelaySeconds":5,"timeoutSeconds":60},
+      {"stepId":"ship","maxAttempts":2,"retryDelaySeconds":10,"timeoutSeconds":300}
+    ]
+  }'
+```
 
-# Ruby Workflow Engine
+Report a completed current step using a unique `operationKey`:
 
-![GitHub stars](https://img.shields.io/github/stars/skylerblue333/Ruby-Workflow-Engine?style=flat-square)
-![GitHub license](https://img.shields.io/github/license/skylerblue333/Ruby-Workflow-Engine?style=flat-square)
+```bash
+curl -X POST http://localhost:8080/api/v1/workflows/<id>/advance \
+  -H 'content-type: application/json' \
+  -d '{"stepId":"reserve","outcome":"success","operationKey":"reserve-op-1","result":{"reservation":"r-1"}}'
+```
 
-## 🌟 Overview
-**Ruby-Workflow-Engine** is a professional-grade project within the **SkyCoin4444** ecosystem. It focuses on delivering high-value solutions in the domain of **Python**.
+## Verify
 
-## 🚀 Key Features
-- **Scalable Architecture**: Designed for enterprise-level growth and performance.
-- **Modern Standards**: Implements best practices for clean code and maintainability.
-- **Robust Integration**: Built to work seamlessly within modern cloud-native environments.
+```bash
+python -m compileall -q src tests
+ruff check src tests
+pytest -q
+pip-audit -r requirements.txt
+docker build -t sky-workflow .
+```
 
-## 🛠️ Technology Stack
-- **Primary Domain**: Python
-- **Ecosystem**: SkyCoin4444 Digital Platform
+## Architecture
 
-## 📂 Structure
-The project is organized into a modular structure to ensure clarity and ease of development.
+```text
+Application / Worker
+       │
+       ▼
+Sky Workflow
+  ├─ immutable step plan
+  ├─ current step + attempt
+  ├─ timeout / retry policy
+  ├─ idempotent transition keys
+  ├─ append-only history
+  └─ SQLite/WAL persistence
+       │
+       └─ future Sky Queue dispatch adapter
+```
 
-## 👨‍💻 Author
-**Skyler Blue Spillers**
-*Professional Chess Player & Software Engineer*
+## Deliberate boundaries
 
----
-*Powered by SkyCoin4444*
+See [`SECURITY.md`](SECURITY.md), [`PRODUCT.md`](PRODUCT.md), and [`MASTER_PLAN.md`](MASTER_PLAN.md).
+
+Sky Workflow coordinates state; it does **not** execute arbitrary user code. It is not represented as Temporal, Cadence, Step Functions, Airflow or a distributed exactly-once workflow engine. Scheduling/cron, distributed worker dispatch, compensation/Saga DSLs, HA replication and a visual workflow builder remain separate future integrations.
+
+## License
+
+See [`LICENSE`](LICENSE).
