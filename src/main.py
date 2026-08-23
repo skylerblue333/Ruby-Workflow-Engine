@@ -48,7 +48,7 @@ class StartWorkflow(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def unique_steps(self) -> "StartWorkflow":
+    def unique_steps(self) -> StartWorkflow:
         ids = [step.stepId for step in self.steps]
         if len(ids) != len(set(ids)):
             raise ValueError("stepId values must be unique within a workflow")
@@ -79,41 +79,8 @@ class WorkflowStore:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS workflows (
-                    id TEXT PRIMARY KEY,
-                    idempotency_key TEXT UNIQUE,
-                    workflow_type TEXT NOT NULL,
-                    definition_json TEXT NOT NULL,
-                    input_json TEXT NOT NULL,
-                    status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','cancelled')),
-                    current_index INTEGER NOT NULL,
-                    current_attempt INTEGER NOT NULL,
-                    available_at REAL NOT NULL,
-                    deadline_at REAL,
-                    output_json TEXT,
-                    last_error TEXT,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS history (
-                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                    workflow_id TEXT NOT NULL,
-                    operation_key TEXT,
-                    event_type TEXT NOT NULL,
-                    step_id TEXT,
-                    payload_json TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    UNIQUE(workflow_id, operation_key),
-                    FOREIGN KEY(workflow_id) REFERENCES workflows(id)
-                )
-                """
-            )
+            connection.execute("CREATE TABLE IF NOT EXISTS workflows (id TEXT PRIMARY KEY,idempotency_key TEXT UNIQUE,workflow_type TEXT NOT NULL,definition_json TEXT NOT NULL,input_json TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','cancelled')),current_index INTEGER NOT NULL,current_attempt INTEGER NOT NULL,available_at REAL NOT NULL,deadline_at REAL,output_json TEXT,last_error TEXT,created_at REAL NOT NULL,updated_at REAL NOT NULL)")
+            connection.execute("CREATE TABLE IF NOT EXISTS history (sequence INTEGER PRIMARY KEY AUTOINCREMENT,workflow_id TEXT NOT NULL,operation_key TEXT,event_type TEXT NOT NULL,step_id TEXT,payload_json TEXT NOT NULL,created_at REAL NOT NULL,UNIQUE(workflow_id, operation_key),FOREIGN KEY(workflow_id) REFERENCES workflows(id))")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_history_workflow ON history(workflow_id, sequence)")
 
     @staticmethod
@@ -137,22 +104,7 @@ class WorkflowStore:
         definition = cls._definition(row)
         index = row["current_index"]
         current = definition[index] if row["status"] == "running" and 0 <= index < len(definition) else None
-        return {
-            "id": row["id"],
-            "idempotencyKey": row["idempotency_key"],
-            "workflowType": row["workflow_type"],
-            "steps": definition,
-            "input": json.loads(row["input_json"]),
-            "status": row["status"],
-            "currentStep": current,
-            "currentAttempt": row["current_attempt"],
-            "availableAt": row["available_at"],
-            "deadlineAt": row["deadline_at"],
-            "output": json.loads(row["output_json"]) if row["output_json"] else None,
-            "lastError": row["last_error"],
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return {"id": row["id"], "idempotencyKey": row["idempotency_key"], "workflowType": row["workflow_type"], "steps": definition, "input": json.loads(row["input_json"]), "status": row["status"], "currentStep": current, "currentAttempt": row["current_attempt"], "availableAt": row["available_at"], "deadlineAt": row["deadline_at"], "output": json.loads(row["output_json"]) if row["output_json"] else None, "lastError": row["last_error"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
 
     def start(self, request: StartWorkflow, now: float) -> tuple[dict[str, Any], bool]:
         definition = [step.model_dump() for step in request.steps]
@@ -163,22 +115,12 @@ class WorkflowStore:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if request.idempotencyKey:
-                existing = connection.execute(
-                    "SELECT * FROM workflows WHERE idempotency_key=?", (request.idempotencyKey,)
-                ).fetchone()
+                existing = connection.execute("SELECT * FROM workflows WHERE idempotency_key=?", (request.idempotencyKey,)).fetchone()
                 if existing:
                     connection.execute("COMMIT")
                     return self._view(existing) or {}, False
             try:
-                connection.execute(
-                    """
-                    INSERT INTO workflows (
-                        id,idempotency_key,workflow_type,definition_json,input_json,status,
-                        current_index,current_attempt,available_at,deadline_at,created_at,updated_at
-                    ) VALUES (?,?,?,?,?,'running',0,1,?,?,?,?)
-                    """,
-                    (workflow_id, request.idempotencyKey, request.workflowType, definition_json, input_json, now, deadline, now, now),
-                )
+                connection.execute("INSERT INTO workflows (id,idempotency_key,workflow_type,definition_json,input_json,status,current_index,current_attempt,available_at,deadline_at,created_at,updated_at) VALUES (?,?,?,?,?,'running',0,1,?,?,?,?)", (workflow_id, request.idempotencyKey, request.workflowType, definition_json, input_json, now, deadline, now, now))
                 self._append_history(connection, workflow_id, None, "workflow_started", request.steps[0].stepId, {"attempt": 1}, now)
                 row = connection.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
                 connection.execute("COMMIT")
@@ -187,9 +129,7 @@ class WorkflowStore:
                 connection.execute("ROLLBACK")
                 if not request.idempotencyKey:
                     raise
-                row = connection.execute(
-                    "SELECT * FROM workflows WHERE idempotency_key=?", (request.idempotencyKey,)
-                ).fetchone()
+                row = connection.execute("SELECT * FROM workflows WHERE idempotency_key=?", (request.idempotencyKey,)).fetchone()
                 if row is None:
                     raise
                 return self._view(row) or {}, False
@@ -207,14 +147,10 @@ class WorkflowStore:
             if row is None:
                 connection.execute("COMMIT")
                 return "not_found", None, False
-
-            replay = connection.execute(
-                "SELECT 1 FROM history WHERE workflow_id=? AND operation_key=?", (workflow_id, request.operationKey)
-            ).fetchone()
+            replay = connection.execute("SELECT 1 FROM history WHERE workflow_id=? AND operation_key=?", (workflow_id, request.operationKey)).fetchone()
             if replay:
                 connection.execute("COMMIT")
                 return "ok", self._view(row), False
-
             row = self._reconcile_timeout_locked(connection, row, now)
             if row["status"] != "running":
                 connection.execute("COMMIT")
@@ -222,45 +158,21 @@ class WorkflowStore:
             if now < row["available_at"]:
                 connection.execute("COMMIT")
                 return "backoff", self._view(row), False
-
             definition = self._definition(row)
             step = definition[row["current_index"]]
             if request.stepId != step["stepId"]:
                 connection.execute("COMMIT")
                 return "step_mismatch", self._view(row), False
-
             if request.outcome == "success":
-                self._append_history(
-                    connection,
-                    workflow_id,
-                    request.operationKey,
-                    "step_succeeded",
-                    request.stepId,
-                    request.result,
-                    now,
-                )
+                self._append_history(connection, workflow_id, request.operationKey, "step_succeeded", request.stepId, request.result, now)
                 next_index = row["current_index"] + 1
                 if next_index >= len(definition):
-                    connection.execute(
-                        """
-                        UPDATE workflows SET status='succeeded', output_json=?, deadline_at=NULL,
-                            available_at=?, last_error=NULL, updated_at=? WHERE id=?
-                        """,
-                        (result_json, now, now, workflow_id),
-                    )
+                    connection.execute("UPDATE workflows SET status='succeeded', output_json=?, deadline_at=NULL, available_at=?, last_error=NULL, updated_at=? WHERE id=?", (result_json, now, now, workflow_id))
                 else:
                     next_step = definition[next_index]
-                    connection.execute(
-                        """
-                        UPDATE workflows SET current_index=?, current_attempt=1, available_at=?, deadline_at=?,
-                            last_error=NULL, updated_at=? WHERE id=?
-                        """,
-                        (next_index, now, now + next_step["timeoutSeconds"], now, workflow_id),
-                    )
+                    connection.execute("UPDATE workflows SET current_index=?, current_attempt=1, available_at=?, deadline_at=?, last_error=NULL, updated_at=? WHERE id=?", (next_index, now, now + next_step["timeoutSeconds"], now, workflow_id))
             else:
-                error = request.error or "step failed"
-                self._apply_failure_locked(connection, row, request.operationKey, "step_failed", error, now)
-
+                self._apply_failure_locked(connection, row, request.operationKey, "step_failed", request.error or "step failed", now)
             updated = connection.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
             connection.execute("COMMIT")
             return "ok", self._view(updated), True
@@ -275,11 +187,8 @@ class WorkflowStore:
             if row["status"] != "running":
                 connection.execute("COMMIT")
                 return "terminal"
-            definition = self._definition(row)
-            step_id = definition[row["current_index"]]["stepId"]
-            connection.execute(
-                "UPDATE workflows SET status='cancelled', deadline_at=NULL, updated_at=? WHERE id=?", (now, workflow_id)
-            )
+            step_id = self._definition(row)[row["current_index"]]["stepId"]
+            connection.execute("UPDATE workflows SET status='cancelled', deadline_at=NULL, updated_at=? WHERE id=?", (now, workflow_id))
             self._append_history(connection, workflow_id, None, "workflow_cancelled", step_id, {}, now)
             connection.execute("COMMIT")
             return "ok"
@@ -297,72 +206,26 @@ class WorkflowStore:
             return row
         return self._apply_failure_locked(connection, row, None, "step_timed_out", "step timeout", now)
 
-    def _apply_failure_locked(
-        self,
-        connection: sqlite3.Connection,
-        row: sqlite3.Row,
-        operation_key: str | None,
-        event_type: str,
-        error: str,
-        now: float,
-    ) -> sqlite3.Row:
-        definition = self._definition(row)
-        step = definition[row["current_index"]]
+    def _apply_failure_locked(self, connection: sqlite3.Connection, row: sqlite3.Row, operation_key: str | None, event_type: str, error: str, now: float) -> sqlite3.Row:
+        step = self._definition(row)[row["current_index"]]
         self._append_history(connection, row["id"], operation_key, event_type, step["stepId"], {"error": error}, now)
         if row["current_attempt"] >= step["maxAttempts"]:
-            connection.execute(
-                """
-                UPDATE workflows SET status='failed', deadline_at=NULL, last_error=?, updated_at=? WHERE id=?
-                """,
-                (error, now, row["id"]),
-            )
+            connection.execute("UPDATE workflows SET status='failed', deadline_at=NULL, last_error=?, updated_at=? WHERE id=?", (error, now, row["id"]))
         else:
             next_attempt = row["current_attempt"] + 1
             available = now + step["retryDelaySeconds"]
-            connection.execute(
-                """
-                UPDATE workflows SET current_attempt=?, available_at=?, deadline_at=?, last_error=?, updated_at=?
-                 WHERE id=?
-                """,
-                (next_attempt, available, available + step["timeoutSeconds"], error, now, row["id"]),
-            )
+            connection.execute("UPDATE workflows SET current_attempt=?, available_at=?, deadline_at=?, last_error=?, updated_at=? WHERE id=?", (next_attempt, available, available + step["timeoutSeconds"], error, now, row["id"]))
         return connection.execute("SELECT * FROM workflows WHERE id=?", (row["id"],)).fetchone()
 
-    def _append_history(
-        self,
-        connection: sqlite3.Connection,
-        workflow_id: str,
-        operation_key: str | None,
-        event_type: str,
-        step_id: str | None,
-        payload: dict[str, Any],
-        now: float,
-    ) -> None:
-        connection.execute(
-            "INSERT INTO history(workflow_id,operation_key,event_type,step_id,payload_json,created_at) VALUES(?,?,?,?,?,?)",
-            (workflow_id, operation_key, event_type, step_id, self._json(payload, "history payload"), now),
-        )
+    def _append_history(self, connection: sqlite3.Connection, workflow_id: str, operation_key: str | None, event_type: str, step_id: str | None, payload: dict[str, Any], now: float) -> None:
+        connection.execute("INSERT INTO history(workflow_id,operation_key,event_type,step_id,payload_json,created_at) VALUES(?,?,?,?,?,?)", (workflow_id, operation_key, event_type, step_id, self._json(payload, "history payload"), now))
 
     def history(self, workflow_id: str) -> list[dict[str, Any]] | None:
         with self._connect() as connection:
-            exists = connection.execute("SELECT 1 FROM workflows WHERE id=?", (workflow_id,)).fetchone()
-            if exists is None:
+            if connection.execute("SELECT 1 FROM workflows WHERE id=?", (workflow_id,)).fetchone() is None:
                 return None
-            rows = connection.execute(
-                "SELECT sequence,operation_key,event_type,step_id,payload_json,created_at FROM history WHERE workflow_id=? ORDER BY sequence",
-                (workflow_id,),
-            ).fetchall()
-        return [
-            {
-                "sequence": row["sequence"],
-                "operationKey": row["operation_key"],
-                "eventType": row["event_type"],
-                "stepId": row["step_id"],
-                "payload": json.loads(row["payload_json"]),
-                "createdAt": row["created_at"],
-            }
-            for row in rows
-        ]
+            rows = connection.execute("SELECT sequence,operation_key,event_type,step_id,payload_json,created_at FROM history WHERE workflow_id=? ORDER BY sequence", (workflow_id,)).fetchall()
+        return [{"sequence": row["sequence"], "operationKey": row["operation_key"], "eventType": row["event_type"], "stepId": row["step_id"], "payload": json.loads(row["payload_json"]), "createdAt": row["created_at"]} for row in rows]
 
     def metrics(self) -> dict[str, int]:
         with self._connect() as connection:
@@ -381,16 +244,14 @@ API_TOKEN = os.getenv("WORKFLOW_API_TOKEN") or None
 if API_TOKEN is not None and len(API_TOKEN) < 16:
     raise RuntimeError("WORKFLOW_API_TOKEN must contain at least 16 characters when configured")
 store = WorkflowStore(DB_PATH)
-app = FastAPI(title="Sky Workflow", version="2.0.0")
+app = FastAPI(title="Sky Workflow", version="1.0.0")
 
 
-def require_api_token(request: Request) -> None:
+def authorize(request: Request) -> None:
     if API_TOKEN is None:
         return
-    expected = f"Bearer {API_TOKEN}"
-    supplied = request.headers.get("authorization", "")
-    if not hmac.compare_digest(expected, supplied):
-        raise HTTPException(status_code=401, detail="unauthorized", headers={"WWW-Authenticate": "Bearer"})
+    if not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {API_TOKEN}"):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @app.get("/healthz")
@@ -400,29 +261,27 @@ def health() -> dict[str, str]:
 
 @app.get("/readyz")
 def ready() -> dict[str, str]:
-    try:
-        store.ping()
-    except sqlite3.Error as exc:
-        raise HTTPException(status_code=503, detail="workflow storage unavailable") from exc
+    store.ping()
     return {"status": "ready", "service": SERVICE_NAME}
 
 
 @app.get("/metrics")
-def metrics() -> dict[str, Any]:
+def metrics() -> dict[str, int | str]:
     return {"service": SERVICE_NAME, **store.metrics()}
 
 
-@app.post("/api/v1/workflows", dependencies=[Depends(require_api_token)])
-def start(request: StartWorkflow) -> dict[str, Any]:
+@app.post("/api/v1/workflows", dependencies=[Depends(authorize)], status_code=201)
+def start_workflow(request: StartWorkflow) -> dict[str, Any]:
     try:
         workflow, created = store.start(request, time.time())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    workflow["submission"] = "created" if created else "idempotent_replay"
+    if not created:
+        workflow["replayed"] = True
     return workflow
 
 
-@app.get("/api/v1/workflows/{workflow_id}", dependencies=[Depends(require_api_token)])
+@app.get("/api/v1/workflows/{workflow_id}", dependencies=[Depends(authorize)])
 def get_workflow(workflow_id: str) -> dict[str, Any]:
     workflow = store.get(workflow_id, time.time())
     if workflow is None:
@@ -430,35 +289,37 @@ def get_workflow(workflow_id: str) -> dict[str, Any]:
     return workflow
 
 
-@app.post("/api/v1/workflows/{workflow_id}/advance", dependencies=[Depends(require_api_token)])
-def advance(workflow_id: str, request: AdvanceRequest) -> dict[str, Any]:
+@app.post("/api/v1/workflows/{workflow_id}/advance", dependencies=[Depends(authorize)])
+def advance_workflow(workflow_id: str, request: AdvanceRequest) -> dict[str, Any]:
     try:
-        outcome, workflow, applied = store.advance(workflow_id, request, time.time())
+        status, workflow, applied = store.advance(workflow_id, request, time.time())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if outcome == "not_found":
+    if status == "not_found":
         raise HTTPException(status_code=404, detail="workflow not found")
-    if outcome == "terminal":
+    if status == "terminal":
         raise HTTPException(status_code=409, detail="workflow is terminal")
-    if outcome == "backoff":
-        raise HTTPException(status_code=409, detail="current step is in retry backoff")
-    if outcome == "step_mismatch":
-        raise HTTPException(status_code=409, detail="step does not match current workflow state")
-    return {"applied": applied, "workflow": workflow}
+    if status == "backoff":
+        raise HTTPException(status_code=409, detail="current step is waiting for retry backoff")
+    if status == "step_mismatch":
+        raise HTTPException(status_code=409, detail="step does not match current workflow step")
+    assert workflow is not None
+    workflow["applied"] = applied
+    return workflow
 
 
-@app.post("/api/v1/workflows/{workflow_id}/cancel", dependencies=[Depends(require_api_token)])
-def cancel(workflow_id: str) -> dict[str, str]:
-    outcome = store.cancel(workflow_id, time.time())
-    if outcome == "not_found":
+@app.post("/api/v1/workflows/{workflow_id}/cancel", dependencies=[Depends(authorize)])
+def cancel_workflow(workflow_id: str) -> dict[str, str]:
+    status = store.cancel(workflow_id, time.time())
+    if status == "not_found":
         raise HTTPException(status_code=404, detail="workflow not found")
-    if outcome == "terminal":
+    if status == "terminal":
         raise HTTPException(status_code=409, detail="workflow is terminal")
     return {"status": "cancelled"}
 
 
-@app.get("/api/v1/workflows/{workflow_id}/history", dependencies=[Depends(require_api_token)])
-def history(workflow_id: str) -> dict[str, Any]:
+@app.get("/api/v1/workflows/{workflow_id}/history", dependencies=[Depends(authorize)])
+def workflow_history(workflow_id: str) -> dict[str, Any]:
     events = store.history(workflow_id)
     if events is None:
         raise HTTPException(status_code=404, detail="workflow not found")
