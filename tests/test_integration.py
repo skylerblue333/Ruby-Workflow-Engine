@@ -50,12 +50,17 @@ def test_terminal_event_allows_no_current_step():
         ("updatedAt", -1),
         ("updatedAt", float("nan")),
         ("updatedAt", float("inf")),
-        ("updatedAt", 10**10_000),
+        pytest.param("updatedAt", 10**10_000, id="updatedAt-huge-int"),
     ],
 )
 def test_rejects_invalid_untrusted_views(field, value):
     with pytest.raises(ValueError):
         integration_event(workflow_view(**{field: value}))
+
+
+def test_rejects_invalid_timestamp_type():
+    with pytest.raises(TypeError):
+        integration_event(workflow_view(updatedAt="42"))
 
 
 def test_rejects_invalid_current_step_shape():
