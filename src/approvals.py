@@ -1,8 +1,8 @@
 """Deterministic SkyApprovals policy core for bounded approval workflows."""
 
+import re
 from dataclasses import dataclass, replace
 from typing import Literal
-import re
 
 Decision = Literal["approve", "reject"]
 Status = Literal["pending", "approved", "rejected", "cancelled"]
