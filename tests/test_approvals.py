@@ -1,6 +1,12 @@
 import pytest
 
-from src.approvals import ApprovalError, cancel, create_request, decide, workflow_contract
+from src.approvals import (
+    ApprovalError,
+    cancel,
+    create_request,
+    decide,
+    workflow_contract,
+)
 
 
 def test_reaches_quorum_deterministically():
