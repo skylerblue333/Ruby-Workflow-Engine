@@ -32,7 +32,7 @@ def _safe_id(label: str, value: Any) -> str:
 
 def _safe_timestamp(value: Any) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise ValueError("updatedAt must be a non-negative finite number")
+        raise TypeError("updatedAt must be a non-negative finite number")
     try:
         converted = float(value)
     except OverflowError as exc:
