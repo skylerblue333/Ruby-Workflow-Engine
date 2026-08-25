@@ -6,6 +6,7 @@ They do not publish to a broker, execute work, or make delivery guarantees.
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Literal, TypedDict
 
@@ -29,6 +30,18 @@ def _safe_id(label: str, value: Any) -> str:
     return value
 
 
+def _safe_timestamp(value: Any) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError("updatedAt must be a non-negative finite number")
+    try:
+        converted = float(value)
+    except OverflowError as exc:
+        raise ValueError("updatedAt must be a non-negative finite number") from exc
+    if converted < 0 or not math.isfinite(converted):
+        raise ValueError("updatedAt must be a non-negative finite number")
+    return converted
+
+
 def integration_event(view: dict[str, Any]) -> WorkflowIntegrationEvent:
     """Build a deterministic, low-data workflow event from a workflow view."""
     workflow_id = _safe_id("workflow id", view.get("id"))
@@ -41,9 +54,7 @@ def integration_event(view: dict[str, Any]) -> WorkflowIntegrationEvent:
     if not isinstance(attempt, int) or isinstance(attempt, bool) or not 0 <= attempt <= 10:
         raise ValueError("currentAttempt must be an integer from 0 to 10")
 
-    updated_at = view.get("updatedAt")
-    if not isinstance(updated_at, (int, float)) or isinstance(updated_at, bool) or updated_at < 0:
-        raise ValueError("updatedAt must be a non-negative number")
+    updated_at = _safe_timestamp(view.get("updatedAt"))
 
     current = view.get("currentStep")
     current_step_id: str | None = None
@@ -59,5 +70,5 @@ def integration_event(view: dict[str, Any]) -> WorkflowIntegrationEvent:
         "status": status,
         "currentStepId": current_step_id,
         "currentAttempt": attempt,
-        "updatedAt": float(updated_at),
+        "updatedAt": updated_at,
     }
