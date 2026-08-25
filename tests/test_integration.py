@@ -48,6 +48,9 @@ def test_terminal_event_allows_no_current_step():
         ("currentAttempt", True),
         ("currentAttempt", 11),
         ("updatedAt", -1),
+        ("updatedAt", float("nan")),
+        ("updatedAt", float("inf")),
+        ("updatedAt", 10**10_000),
     ],
 )
 def test_rejects_invalid_untrusted_views(field, value):
